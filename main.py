@@ -1,47 +1,42 @@
 import os
 import asyncio
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
+from flask import Flask
+from threading import Thread
 
-# Minimal web server to satisfy Render's health check
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Bot is running")
+# Simple server to keep Render happy
+app = Flask(__name__)
 
-def run_health_server():
+@app.route('/')
+def health_check():
+    return "Bot is running!"
+
+def run_server():
+    # Render provides a PORT environment variable automatically
     port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-    server.serve_forever()
+    app.run(host='0.0.0.0', port=port)
 
-# Bot logic
+# Bot Command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🔥 Bot is Live!")
+    await update.message.reply_text("🔥 Bot is Live and Ready!")
 
-async def main():
+def main():
     TOKEN = os.getenv("BOT_TOKEN")
     
     if not TOKEN:
-        print("Error: Please set the BOT_TOKEN in Environment Variables.")
+        print("CRITICAL ERROR: BOT_TOKEN is missing in Environment Variables!")
         return
 
-    # Start the web server in a separate thread
-    threading.Thread(target=run_health_server, daemon=True).start()
+    # Start the web server in the background
+    Thread(target=run_server, daemon=True).start()
 
-    # Build and start the Telegram Bot
+    # Setup and Start the Telegram Bot
     application = Application.builder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
 
-    print("Bot is starting...")
-    
-    # Using run_polling directly works fine as long as the web server is running
-    await application.run_polling()
+    print("Starting bot polling...")
+    application.run_polling()
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        pass
+    main()
