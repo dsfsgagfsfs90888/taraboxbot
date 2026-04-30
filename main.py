@@ -1,1 +1,1 @@
-
+print("Bot Ready")
