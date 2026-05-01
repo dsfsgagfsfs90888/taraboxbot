@@ -7,7 +7,7 @@ from threading import Thread
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# Flask setup for Render
+# Flask setup for Render health check
 app = Flask(__name__)
 @app.route('/')
 def home(): return "Bot is Alive"
@@ -16,7 +16,7 @@ def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
-# Tokens from Environment Variables
+# Get tokens from Environment Variables
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 APIFY_TOKEN = os.getenv("APIFY_TOKEN")
 
@@ -32,8 +32,51 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             run_id = run_data["data"]["id"]
             dataset_id = run_data["data"]["defaultDatasetId"]
             
+            # Polling for completion
             status_url = f"https://api.apify.com/v2/actor-runs/{run_id}?token={APIFY_TOKEN}"
             for _ in range(15):
+                check = requests.get(status_url).json()
+                if check["data"]["status"] == "SUCCEEDED":
+                    break
+                await asyncio.sleep(5)
+            
+            # Fetch results
+            res_url = f"https://api.apify.com/v2/datasets/{dataset_id}/items?token={APIFY_TOKEN}"
+            results = requests.get(res_url).json()
+            
+            if results and "downloadUrl" in results[0]:
+                dl_link = results[0]["downloadUrl"]
+                await status_msg.edit_text(f"✅ **File Ready!**\n\n🔗 [Download Now]({dl_link})", parse_mode="Markdown")
+            else:
+                await status_msg.edit_text("❌ Link extraction failed. API might be busy.")
+        except Exception as e:
+            await status_msg.edit_text(f"⚠️ Error: {str(e)}")
+    else:
+        await update.message.reply_text("❌ Please send a valid Terabox link.")
+
+async def start_bot():
+    # Build the application
+    application = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    print("Bot is starting...")
+    # Initialize and start polling correctly
+    async with application:
+        await application.start()
+        await application.updater.start_polling()
+        # Keep the bot running
+        while True:
+            await asyncio.sleep(1)
+
+if __name__ == "__main__":
+    # Start web server in background
+    Thread(target=run_web_server, daemon=True).start()
+    
+    # Create and run the event loop manually to avoid RuntimeError
+    try:
+        asyncio.run(start_bot())
+    except (KeyboardInterrupt, SystemExit):
+        pass
                 check = requests.get(status_url).json()
                 if check["data"]["status"] == "SUCCEEDED":
                     break
